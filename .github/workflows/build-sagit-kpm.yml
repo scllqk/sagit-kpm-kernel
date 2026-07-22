@@ -30,7 +30,7 @@ jobs:
       - name: Clone kernel source
         run: |
           git clone --depth=1 \
-            https://github.com/LineageOS/android_kernel_xiaomi_msm8998 \
+            https://github.com/scllqk/android_kernel_xiaomi_msm8998 \
             -b lineage-22.2 kernel
           cd kernel
 
@@ -51,6 +51,16 @@ jobs:
 
           # 添加 KSU 到 Kconfig
           sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Fix set_memory.h compat for kernel 4.4
+        run: |
+          cd kernel
+          # KPM 代码包含了 <linux/set_memory.h>（4.6+ 才有），但实际没使用任何 set_memory API
+          # 去掉这三个无用的 include，否则 4.4 内核编译报 fatal error
+          sed -i '/^#include <linux\/set_memory.h>/d' \
+            drivers/kernelsu/kpm/kpm.c \
+            drivers/kernelsu/kpm/compact.c \
+            drivers/kernelsu/kpm/super_access.c
 
       - name: Configure KPM + SUSFS
         run: |
@@ -80,6 +90,12 @@ jobs:
 
           # 更新配置（让依赖选项自动调整）
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+      - name: Disable CC_WERROR for GCC 11 compat
+        run: |
+          cd kernel
+          # Ubuntu 22.04 的 GCC 11 对 4.4 内核有很多新警告，CC_WERROR 会把它们变错误
+          scripts/config --file .config --set-val CC_WERROR n
 
       - name: Verify KPM enabled
         run: |
