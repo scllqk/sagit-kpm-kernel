@@ -74,8 +74,10 @@ jobs:
             sed -i '/^# for MSM8996 sound card driver/i\ccflags-y += -I$(srctree)\/sound\/soc\/msm' sound/soc/msm/Makefile
           # 3) drivers/gpu/msm/kgsl_trace.h: define_trace.h 用 TRACE_INCLUDE_PATH=. 做
           #    #include "./kgsl_trace.h"，从 include/trace/ 目录找不到同目录头文件
+          #    NOTE: 该 Makefile 第一行用 ccflags-y := (简单赋值) 会覆盖前面的 +=
+          #    所以直接在原行末尾追加路径
           grep -q 'ccflags-y.*-I.*drivers/gpu/msm' drivers/gpu/msm/Makefile || \
-            sed -i '1i\ccflags-y += -I$(srctree)\/drivers\/gpu\/msm' drivers/gpu/msm/Makefile
+            sed -i '/^ccflags-y := -Idrivers\/staging\/android/s|$| -I$(srctree)/drivers/gpu/msm|' drivers/gpu/msm/Makefile
 
       - name: Configure KPM + SUSFS
         run: |
