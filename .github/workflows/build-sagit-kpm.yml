@@ -62,6 +62,17 @@ jobs:
             drivers/kernelsu/kpm/compact.c \
             drivers/kernelsu/kpm/super_access.c
 
+      - name: Fix missing vendor header include paths
+        run: |
+          cd kernel
+          # 独立编译内核时缺少 vendor include 路径，本地头文件用 <> 包含会找不到
+          # 1) drivers/bluetooth/btfm_slim.c 需要 <btfm_slim.h> (在同目录)
+          grep -q 'ccflags-y.*-I.*drivers/bluetooth' drivers/bluetooth/Makefile || \
+            sed -i '/^ccflags-y/a ccflags-y += -I$(srctree)\/drivers\/bluetooth' drivers/bluetooth/Makefile
+          # 2) sound/soc/msm/msm8998.c 需要 <device_event.h> (在同目录)
+          grep -q 'ccflags-y.*-I.*sound/soc/msm' sound/soc/msm/Makefile || \
+            sed -i '/^# for MSM8996 sound card driver/i\ccflags-y += -I$(srctree)\/sound\/soc\/msm' sound/soc/msm/Makefile
+
       - name: Configure KPM + SUSFS
         run: |
           cd kernel
