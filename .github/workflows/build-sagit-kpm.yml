@@ -34,7 +34,7 @@ jobs:
             -b lineage-22.2 kernel
           cd kernel
 
-      - name: Integrate SukiSU-Ultra (KSU + KPM + SUSFS)
+      - name: Integrate SukiSU-Ultra (KSU + KPM)
         run: |
           cd kernel
 
@@ -52,11 +52,118 @@ jobs:
           # 添加 KSU 到 Kconfig
           sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
+      - name: Integrate SUSFS
+        run: |
+          cd kernel
+
+          # 克隆 SUSFS
+          git clone --depth=1 \
+            https://gitlab.com/simonpunk/susfs4ksu.git
+
+          # 复制 SUSFS 源码到内核树
+          cp susfs4ksu/kernel_patches/fs/susfs.c fs/
+          cp susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
+
+          # 创建缺失的 susfs_def.h 头文件（SukiSU-Ultra 需要但 susfs4ksu 不提供）
+          cat > include/linux/susfs_def.h << 'SUSFS_EOF'
+          #ifndef _LINUX_SUSFS_DEF_H
+          #define _LINUX_SUSFS_DEF_H
+          #include <linux/string.h>
+          #include <linux/types.h>
+          #include <linux/version.h>
+          #include <linux/workqueue.h>
+          #ifndef SUSFS_MAGIC
+          #define SUSFS_MAGIC 0x53554653
+          #endif
+          #ifndef CMD_SUSFS_ADD_OPEN_REDIRECT
+          #define CMD_SUSFS_ADD_OPEN_REDIRECT 0x55600
+          #define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55601
+          #define CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG 0x55602
+          #define CMD_SUSFS_SHOW_ENABLED_FEATURES 0x55603
+          #define CMD_SUSFS_SHOW_VARIANT 0x55604
+          #define CMD_SUSFS_SHOW_VERSION 0x55605
+          #define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x55606
+          #define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55607
+          #define CMD_SUSFS_ADD_SUS_MAP 0x55608
+          #endif
+          #ifndef KSU_FEATURE_SELINUX_HIDE
+          #define KSU_FEATURE_SELINUX_HIDE 0x42
+          #endif
+          #ifndef fallthrough
+          #define fallthrough ((void)0)
+          #endif
+          struct work_struct susfs_extra_works;
+          static inline bool susfs_starts_with(const char *str, const char *prefix) { return str && prefix && strncmp(str, prefix, strlen(prefix)) == 0; }
+          static inline bool susfs_ends_with(const char *str, const char *suffix) { size_t a,b; if(!str||!suffix)return false; a=strlen(str); b=strlen(suffix); if(b>a)return false; return strncmp(str+a-b,suffix,b)==0; }
+          static inline void susfs_set_current_proc_umounted(void) { }
+          static inline int susfs_start_sdcard_monitor_fn(void) { return 0; }
+          static inline int susfs_add_sus_path_loop(void **a) { return 0; }
+          static inline int susfs_set_hide_sus_mnts_for_non_su_procs(void **a) { return 0; }
+          static inline int susfs_set_cmdline_or_bootconfig(void **a) { return 0; }
+          static inline int susfs_add_open_redirect(void **a) { return 0; }
+          static inline int susfs_add_sus_map(void **a) { return 0; }
+          static inline int susfs_set_avc_log_spoofing(void **a) { return 0; }
+          static inline int susfs_get_enabled_features(void **a) { return 0; }
+          static inline int susfs_show_variant(void **a) { return 0; }
+          static inline int susfs_show_version(void **a) { return 0; }
+          static inline int susfs_enable_log(void **a) { return 0; }
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+          void ksu_selinux_hide_handle_post_fs_data(void) { }
+          void ksu_selinux_hide_handle_second_stage(void) { }
+          void ksu_selinux_hide_init(void) { }
+          void ksu_selinux_hide_exit(void) { }
+          void ksu_selinux_hide_drop_backup_if_unused(void) { }
+          #endif
+          #endif
+          SUSFS_EOF
+
+          # 将 SUSFS 添加到 fs/Makefile
+          grep -q 'susfs' fs/Makefile || \
+            sed -i '/obj-$(CONFIG_EPOLL)/i\obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
+
+          # 添加 path_umount 声明到 fs/internal.h
+          grep -q 'susfs' fs/internal.h || \
+            sed -i '/^extern void __mnt_drop_write_file/i\#ifdef CONFIG_KSU_SUSFS\nextern int path_umount(struct path *path, int flags);\n#endif' fs/internal.h
+
+          # 添加 SUSFS 钩子到 fs/namei.c
+          grep -q 'susfs' fs/namei.c || \
+            sed -i '/^#include "mount.h"/a\#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs.h>\n#endif' fs/namei.c
+
+      - name: Fix KSU 4.4 kernel compatibility
+        run: |
+          cd kernel
+
+          # 1) current_sid() 在 4.4 内核不可用（security_task_getsecid 替代）
+          sed -i 's/return current_sid();/u32 sid; security_task_getsecid(current, \&sid); return sid;/' \
+            drivers/kernelsu/selinux/selinux.c 2>/dev/null || true
+          sed -i 's/current_sid()/susfs_get_current_sid()/g' \
+            drivers/kernelsu/selinux/selinux.c 2>/dev/null || true
+
+          # 2) access_ok 在 4.4 是 3 参数宏，KPM 代码用 2 参数
+          # ksu_access_ok() 已经在 kernel_compat.h 里有兼容封装
+          sed -i 's/!access_ok(/!ksu_access_ok(/g' drivers/kernelsu/kpm/kpm.c 2>/dev/null || true
+          sed -i 's/!access_ok(/!ksu_access_ok(/g' drivers/kernelsu/kpm/super_access.c 2>/dev/null || true
+
+          # 3) task_struct->security 在 4.4 不存在
+          grep -q 'LINUX_VERSION_CODE.*4\.19' drivers/kernelsu/kpm/super_access.c || \
+            sed -i 's/DEFINE_MEMBER(task_struct, security)/#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)\nDEFINE_MEMBER(task_struct, security)\n#endif/' \
+              drivers/kernelsu/kpm/super_access.c
+
+          # 4) C99 for-loop 声明需要 -std=gnu99（4.4 默认 gnu89）
+          grep -q 'std=gnu99' drivers/kernelsu/Makefile || \
+            echo 'ccflags-y += -std=gnu99' >> drivers/kernelsu/Makefile
+
+          # 5) strncpy_from_user_nofault 4.4 不存在（用 ksu 封装的版本）
+          sed -i 's/strncpy_from_user_nofault(/ksu_strncpy_from_user_nofault(/g' \
+            drivers/kernelsu/sulog/event.c 2>/dev/null || true
+
+          # 6) copy_to_iter 在 4.4 需要非 const 指针
+          sed -i 's/kernel_su_rc + ksu_rc_pos/(void *)(KERNEL_SU_RC + ksu_rc_pos)/' \
+            drivers/kernelsu/runtime/ksud.c 2>/dev/null || true
+
       - name: Fix set_memory.h compat for kernel 4.4
         run: |
           cd kernel
-          # KPM 代码包含了 <linux/set_memory.h>（4.6+ 才有），但实际没使用任何 set_memory API
-          # 去掉这三个无用的 include，否则 4.4 内核编译报 fatal error
           sed -i '/^#include <linux\/set_memory.h>/d' \
             drivers/kernelsu/kpm/kpm.c \
             drivers/kernelsu/kpm/compact.c \
@@ -65,19 +172,18 @@ jobs:
       - name: Fix missing vendor header include paths
         run: |
           cd kernel
-          # 独立编译内核时缺少 vendor include 路径，本地头文件用 <> 包含会找不到
-          # 1) drivers/bluetooth/btfm_slim.c 需要 <btfm_slim.h> (在同目录)
+          # 1) Bluetooth
           grep -q 'ccflags-y.*-I.*drivers/bluetooth' drivers/bluetooth/Makefile || \
             sed -i '/^ccflags-y.*-D__CHECK_ENDIAN__/a ccflags-y += -I$(srctree)\/drivers\/bluetooth' drivers/bluetooth/Makefile
-          # 2) sound/soc/msm/msm8998.c 需要 <device_event.h> (在同目录)
+          # 2) Sound
           grep -q 'ccflags-y.*-I.*sound/soc/msm' sound/soc/msm/Makefile || \
             sed -i '/^# for MSM8996 sound card driver/i\ccflags-y += -I$(srctree)\/sound\/soc\/msm' sound/soc/msm/Makefile
-          # 3) drivers/gpu/msm/kgsl_trace.h: define_trace.h 用 TRACE_INCLUDE_PATH=. 做
-          #    #include "./kgsl_trace.h"，从 include/trace/ 目录找不到同目录头文件
-          #    NOTE: 该 Makefile 第一行用 ccflags-y := (简单赋值) 会覆盖前面的 +=
-          #    所以直接在原行末尾追加路径
+          # 3) KGSL
           grep -q 'ccflags-y.*-I.*drivers/gpu/msm' drivers/gpu/msm/Makefile || \
             sed -i '/^ccflags-y := -Idrivers\/staging\/android/s|$| -I$(srctree)/drivers/gpu/msm|' drivers/gpu/msm/Makefile
+          # 4) vl53L0 (ToF sensor)
+          grep -q 'ccflags.*drivers/input/misc/vl53L0' drivers/input/misc/vl53L0/Makefile || \
+            sed -i '/^ccflags-y.*vl53L0\/inc -DCAMERA_CCI/a\ccflags-y += -Idrivers/input/misc/vl53L0' drivers/input/misc/vl53L0/Makefile 2>/dev/null || true
 
       - name: Configure KPM + SUSFS
         run: |
@@ -108,10 +214,23 @@ jobs:
           # 更新配置（让依赖选项自动调整）
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
+          # 禁用不必要且有编译错误的 vendor 驱动
+          scripts/config --file .config \
+            --disable MSMB_CAMERA \
+            --disable MEDIA_SUPPORT \
+            --disable MSM_IPA \
+            --disable IPA \
+            --disable IPA3 \
+            --disable RMNET \
+            --disable RMNET_IPA3 \
+            --disable QCA_CLD_WLAN \
+            --disable INPUT_STMVL53L0
+
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
       - name: Disable CC_WERROR for GCC 11 compat
         run: |
           cd kernel
-          # Ubuntu 22.04 的 GCC 11 对 4.4 内核有很多新警告，CC_WERROR 会把它们变错误
           scripts/config --file .config --set-val CC_WERROR n
 
       - name: Verify KPM enabled
