@@ -185,6 +185,9 @@ jobs:
           # 4) vl53L0 (ToF sensor)
           grep -q 'ccflags.*drivers/input/misc/vl53L0' drivers/input/misc/vl53L0/Makefile || \
             sed -i '/^ccflags-y.*vl53L0\/inc -DCAMERA_CCI/a\ccflags-y += -Idrivers/input/misc/vl53L0' drivers/input/misc/vl53L0/Makefile 2>/dev/null || true
+          # 5) mhi (Modem Host Interface) <mhi_sys.h> 在同目录
+          grep -q 'ccflags-y.*-I.*drivers/platform/msm/mhi' drivers/platform/msm/mhi/Makefile || \
+            sed -i '1s/^/ccflags-y += -I$(srctree)\/drivers\/platform\/msm\/mhi\n/' drivers/platform/msm/mhi/Makefile
 
       - name: Configure KPM + SUSFS
         run: |
