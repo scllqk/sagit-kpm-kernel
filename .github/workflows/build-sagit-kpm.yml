@@ -154,10 +154,9 @@ jobs:
             echo 'ccflags-y += -std=gnu99' >> drivers/kernelsu/Makefile
 
           # 5) strncpy_from_user_nofault 4.4 不存在（用 ksu 封装的版本）
-          # SukiSU-Ultra builtin 已自带 ksu_ 前缀，仅当没有时才替换
-          grep -q 'ksu_strncpy_from_user_nofault' drivers/kernelsu/sulog/event.c || \
-            sed -i 's/strncpy_from_user_nofault(/ksu_strncpy_from_user_nofault(/g' \
-              drivers/kernelsu/sulog/event.c
+          # SukiSU builtin 分支部分行已有 ksu_ 前缀，部分没有，需全量替换+清理双前缀
+          sed -i 's/strncpy_from_user_nofault(/ksu_strncpy_from_user_nofault(/g; s/ksu_ksu_/ksu_/g' \
+            drivers/kernelsu/sulog/event.c
 
           # 6) copy_to_iter 在 4.4 需要非 const 指针
           sed -i 's/kernel_su_rc + ksu_rc_pos/(void *)(KERNEL_SU_RC + ksu_rc_pos)/' \
