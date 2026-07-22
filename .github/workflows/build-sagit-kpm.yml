@@ -1,0 +1,148 @@
+name: Build sagit KPM Kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            libncurses-dev \
+            flex bison \
+            libssl-dev \
+            bc \
+            lz4 \
+            cpio \
+            python3
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_kernel_xiaomi_msm8998 \
+            -b lineage-22.2 kernel
+          cd kernel
+
+      - name: Integrate SukiSU-Ultra (KSU + KPM + SUSFS)
+        run: |
+          cd kernel
+
+          # 克隆 SukiSU
+          git clone --depth=1 \
+            https://github.com/SukiSU-Ultra/SukiSU-Ultra \
+            -b builtin
+
+          # 集成到内核树
+          ln -sf ../SukiSU-Ultra/kernel drivers/kernelsu
+
+          # 添加 KSU 到 Makefile
+          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+
+          # 添加 KSU 到 Kconfig
+          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Configure KPM + SUSFS
+        run: |
+          cd kernel
+
+          # 使用 sagit defconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- sagit_defconfig
+
+          # 追加 KPM / SUSFS / KALLSYMS 配置
+          cat >> .config << 'EOF'
+          CONFIG_KSU=y
+          CONFIG_KPM=y
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_KSU_MANUAL_SU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          EOF
+
+          # 更新配置（让依赖选项自动调整）
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+      - name: Verify KPM enabled
+        run: |
+          cd kernel
+          echo "=== KPM ==="
+          grep CONFIG_KPM .config
+          echo "=== KSU ==="
+          grep CONFIG_KSU .config
+
+      - name: Build kernel
+        run: |
+          cd kernel
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Show build results
+        run: |
+          echo "=== 编译产物 ==="
+          ls -la kernel/arch/arm64/boot/
+          cat kernel/arch/arm64/boot/.version 2>/dev/null || true
+
+      - name: Package boot.img
+        run: |
+          cd kernel
+
+          # 下载 AnyKernel3 模板
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 anykernel3
+
+          # 复制内核
+          cp arch/arm64/boot/Image.gz-dtb anykernel3/ 2>/dev/null || \
+          cp arch/arm64/boot/Image.gz anykernel3/ 2>/dev/null || \
+          cp arch/arm64/boot/Image anykernel3/
+
+          # 配置设备名
+          cat > anykernel3/anykernel.sh << 'SH'
+          kernel.string=Sagit KPM Kernel @ build
+          device.name1=sagit
+          device.name2=Mi 6
+          device.name3=
+          device.name4=
+          device.name5=
+          block=/dev/block/bootdevice/by-name/boot;
+          is_slot_device=0;
+          ramdisk_compression=auto;
+          SH
+
+          # 打包
+          cd anykernel3
+          zip -r9 ../sagit-kpm-anykernel3.zip * -x .git README.md
+          cd ..
+
+      - name: Upload boot.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: sagit-kpm-boot-img
+          path: kernel/arch/arm64/boot/Image.gz-dtb
+
+      - name: Upload AnyKernel3 zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: sagit-kpm-anykernel3
+          path: kernel/sagit-kpm-anykernel3.zip
+
+      - name: Upload kernel config
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-config
+          path: kernel/.config
