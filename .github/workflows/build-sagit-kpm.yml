@@ -213,7 +213,10 @@ jobs:
           # 11) Camera common: cam_smmu_api.c 需要 <msm_camera_tz_util.h>（同目录）
           grep -q 'ccflags-y.*-I.*camera_v2/common' drivers/media/platform/msm/camera_v2/common/Makefile || \
             echo 'ccflags-y += -I$(srctree)/drivers/media/platform/msm/camera_v2/common' >> drivers/media/platform/msm/camera_v2/common/Makefile
-          # 12) rndis_ipa: rndis_ipa_trace.h 用 TRACE_INCLUDE_PATH=. 引用（drivers/net/ethernet/msm）
+          # 12) Camera ISP: trace/events/msm_cam.h 用 #include "msm_isp.h" 引用同目录（trace/events/ 找不到，需 -I 到 isp/）
+          grep -q 'ccflags-y.*-I.*camera_v2/isp' drivers/media/platform/msm/camera_v2/isp/Makefile || \
+            sed -i '1s/^/ccflags-y += -I$(srctree)\/drivers\/media\/platform\/msm\/camera_v2\/isp\n/' drivers/media/platform/msm/camera_v2/isp/Makefile
+          # 13) rndis_ipa: rndis_ipa_trace.h 用 TRACE_INCLUDE_PATH=. 引用（drivers/net/ethernet/msm）
           grep -q 'ccflags-y.*-I.*drivers/net/ethernet/msm' drivers/net/ethernet/msm/Makefile || \
             echo 'ccflags-y += -I$(srctree)/drivers/net/ethernet/msm' >> drivers/net/ethernet/msm/Makefile
 
