@@ -172,10 +172,28 @@ jobs:
       - name: Fix set_memory.h compat for kernel 4.4
         run: |
           cd kernel
-          sed -i '/^#include <linux\/set_memory.h>/d' \
+          sed -i '/^#include <linux\\/set_memory.h>/d' \
             drivers/kernelsu/kpm/kpm.c \
             drivers/kernelsu/kpm/compact.c \
             drivers/kernelsu/kpm/super_access.c
+
+      - name: Fix KSU LSM hook for SUSFS mode (KSU Manager fd)
+        run: |
+          cd kernel
+          # When CONFIG_KSU_SUSFS=y, task_fix_setuid LSM hook is gated out
+          # and ksu_handle_setresuid (from kernel/sys.c) is expected instead.
+          # But we don't apply SUSFS kernel/sys.c patches, so KSU Manager
+          # can't get its fd. Fix: always register the hook.
+          sed -i \
+            '/#ifndef CONFIG_KSU_SUSFS/,/^#endif/{
+              /#ifndef CONFIG_KSU_SUSFS/d
+              /^#endif/d
+            }' SukiSU-Ultra/kernel/hook/lsm_hook.c
+          # Ensure ksu_task_fix_setuid is defined unconditionally
+          # (move its definition out of #else/#endif blocks)
+          sed -i \
+            '/^static int ksu_task_fix_setuid/{x;s/^endif.*/UNCONDITIONAL/;x}' \
+            SukiSU-Ultra/kernel/hook/lsm_hook.c 2>/dev/null || true
 
       - name: Fix missing vendor header include paths
         run: |
