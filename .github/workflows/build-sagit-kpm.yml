@@ -1,0 +1,276 @@
+name: Build sagit KPM Kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install deps + toolchain (GCC 9)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-9-aarch64-linux-gnu \
+            gcc-9-arm-linux-gnueabihf \
+            libncurses-dev \
+            flex bison \
+            libssl-dev \
+            bc \
+            lz4 \
+            cpio \
+            python3
+
+          sudo update-alternatives --install /usr/bin/aarch64-linux-gnu-gcc \
+            aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-gnu-gcc-9 100
+          sudo update-alternatives --install /usr/bin/arm-linux-gnueabihf-gcc \
+            arm-linux-gnueabihf-gcc /usr/bin/arm-linux-gnueabihf-gcc-9 100
+
+          echo "Compiler: $(aarch64-linux-gnu-gcc --version | head -1)"
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth=1 \
+            https://github.com/scllqk/android_kernel_xiaomi_msm8998 \
+            -b lineage-22.2 kernel
+
+      - name: Integrate SukiSU-Ultra v4.1.0 (KSU + KPM)
+        run: |
+          cd kernel
+
+          # 克隆 SukiSU-Ultra v4.1.0（和 XDA 内核同版本）
+          git clone --depth=1 --branch v4.1.0 \
+            https://github.com/SukiSU-Ultra/SukiSU-Ultra
+
+          # 集成到内核树
+          ln -sf ../SukiSU-Ultra/kernel drivers/kernelsu
+
+      - name: Patch code for kernel 4.4
+        run: |
+          cd kernel
+          python3 ../fix_ksu_44.py
+
+      - name: Integrate SUSFS
+        run: |
+          cd kernel
+
+          git clone --depth=1 \
+            https://gitlab.com/simonpunk/susfs4ksu.git
+
+          cp susfs4ksu/kernel_patches/fs/susfs.c fs/
+          cp susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
+
+          cat > include/linux/susfs_def.h << 'SUSFS_EOF'
+          #ifndef _LINUX_SUSFS_DEF_H
+          #define _LINUX_SUSFS_DEF_H
+          #include <linux/string.h>
+          #include <linux/types.h>
+          #include <linux/version.h>
+          #include <linux/workqueue.h>
+          #ifndef SUSFS_MAGIC
+          #define SUSFS_MAGIC 0x53554653
+          #endif
+          #ifndef CMD_SUSFS_ADD_OPEN_REDIRECT
+          #define CMD_SUSFS_ADD_OPEN_REDIRECT 0x55600
+          #define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55601
+          #define CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG 0x55602
+          #define CMD_SUSFS_SHOW_ENABLED_FEATURES 0x55603
+          #define CMD_SUSFS_SHOW_VARIANT 0x55604
+          #define CMD_SUSFS_SHOW_VERSION 0x55605
+          #define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x55606
+          #define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55607
+          #define CMD_SUSFS_ADD_SUS_MAP 0x55608
+          #endif
+          #ifndef KSU_FEATURE_SELINUX_HIDE
+          #define KSU_FEATURE_SELINUX_HIDE 0x42
+          #endif
+          #ifndef fallthrough
+          #define fallthrough ((void)0)
+          #endif
+          struct work_struct susfs_extra_works;
+          static inline bool susfs_starts_with(const char *str, const char *prefix) { return str && prefix && strncmp(str, prefix, strlen(prefix)) == 0; }
+          static inline bool susfs_ends_with(const char *str, const char *suffix) { size_t a,b; if(!str||!suffix)return false; a=strlen(str); b=strlen(suffix); if(b>a)return false; return strncmp(str+a-b,suffix,b)==0; }
+          static inline void susfs_set_current_proc_umounted(void) { }
+          static inline int susfs_start_sdcard_monitor_fn(void) { return 0; }
+          static inline int susfs_add_sus_path_loop(void **a) { return 0; }
+          static inline int susfs_set_hide_sus_mnts_for_non_su_procs(void **a) { return 0; }
+          static inline int susfs_set_cmdline_or_bootconfig(void **a) { return 0; }
+          static inline int susfs_add_open_redirect(void **a) { return 0; }
+          static inline int susfs_add_sus_map(void **a) { return 0; }
+          static inline int susfs_set_avc_log_spoofing(void **a) { return 0; }
+          static inline int susfs_get_enabled_features(void **a) { return 0; }
+          static inline int susfs_show_variant(void **a) { return 0; }
+          static inline int susfs_show_version(void **a) { return 0; }
+          static inline int susfs_enable_log(void **a) { return 0; }
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+          void ksu_selinux_hide_handle_post_fs_data(void) { }
+          void ksu_selinux_hide_handle_second_stage(void) { }
+          void ksu_selinux_hide_init(void) { }
+          void ksu_selinux_hide_exit(void) { }
+          void ksu_selinux_hide_drop_backup_if_unused(void) { }
+          #endif
+          #endif
+          SUSFS_EOF
+
+          grep -q 'susfs' fs/Makefile || \
+            sed -i '/obj-$(CONFIG_EPOLL)/i\obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
+          grep -q 'susfs' fs/internal.h || \
+            sed -i '/^extern void __mnt_drop_write_file/i\#ifdef CONFIG_KSU_SUSFS\nextern int path_umount(struct path *path, int flags);\n#endif' fs/internal.h
+          grep -q 'susfs' fs/namei.c || \
+            sed -i '/^#include "mount.h"/a\#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs.h>\n#endif' fs/namei.c
+
+      - name: Fix KSU 4.4 kernel compatibility
+        run: |
+          cd kernel
+
+          # current_sid() 在 4.4 不可用
+          sed -i 's/return current_sid();/u32 sid; security_task_getsecid(current, \&sid); return sid;/' \
+            drivers/kernelsu/selinux/selinux.c 2>/dev/null || true
+          sed -i 's/current_sid()/susfs_get_current_sid()/g' \
+            drivers/kernelsu/selinux/selinux.c 2>/dev/null || true
+
+          # access_ok 在 4.4 是 3 参数
+          sed -i 's/!access_ok(/!ksu_access_ok(/g' drivers/kernelsu/kpm/kpm.c 2>/dev/null || true
+          sed -i 's/!access_ok(/!ksu_access_ok(/g' drivers/kernelsu/kpm/super_access.c 2>/dev/null || true
+
+          # C99 for-loop 声明
+          grep -q 'std=gnu99' drivers/kernelsu/Makefile || \
+            echo 'ccflags-y += -std=gnu99' >> drivers/kernelsu/Makefile
+
+          # strncpy_from_user_nofault
+          sed -i 's/strncpy_from_user_nofault(/ksu_strncpy_from_user_nofault(/g; s/ksu_ksu_/ksu_/g' \
+            drivers/kernelsu/sulog/event.c 2>/dev/null || true
+
+          # copy_to_iter 非 const
+          sed -i 's/kernel_su_rc + ksu_rc_pos/(void *)(KERNEL_SU_RC + ksu_rc_pos)/' \
+            drivers/kernelsu/runtime/ksud.c 2>/dev/null || true
+
+      - name: Fix set_memory.h compat for kernel 4.4
+        run: |
+          cd kernel
+          sed -i '\|^#include <linux/set_memory.h>|d' \
+            drivers/kernelsu/kpm/kpm.c \
+            drivers/kernelsu/kpm/compact.c \
+            drivers/kernelsu/kpm/super_access.c 2>/dev/null || true
+
+      - name: Fix missing vendor header include paths
+        run: |
+          cd kernel
+          for f in \
+            "drivers/bluetooth/Makefile:ccflags-y.*-I.*drivers/bluetooth:ccflags-y += -I\$(srctree)/drivers/bluetooth" \
+            "sound/soc/msm/Makefile:ccflags-y.*-I.*sound/soc/msm:ccflags-y += -I\$(srctree)/sound/soc/msm" \
+            "drivers/staging/qcacld-3.0/Kbuild:-Werror:-Wno-error" \
+            "drivers/platform/msm/mhi/Makefile:ccflags-y.*-I.*mhi:ccflags-y += -I\$(srctree)/drivers/platform/msm/mhi" \
+            "drivers/soc/qcom/Makefile:ccflags-y.*-I.*qcom:ccflags-y += -I\$(srctree)/drivers/soc/qcom" \
+            "drivers/platform/msm/ipa/ipa_v2/Makefile:ccflags-y.*-I.*ipa_v2:ccflags-y += -I\$(srctree)/drivers/platform/msm/ipa/ipa_v2" \
+            "drivers/platform/msm/ipa/ipa_v3/Makefile:ccflags-y.*-I.*ipa_v3:ccflags-y += -I\$(srctree)/drivers/platform/msm/ipa/ipa_v3"; do
+            file=$(echo "$f" | cut -d: -f1)
+            pattern=$(echo "$f" | cut -d: -f2)
+            addition=$(echo "$f" | cut -d: -f3-)
+            if echo "$addition" | grep -q -- "-Werror"; then
+              grep -q 'Wno-error' "$file" || sed -i "s/$pattern/$addition/" "$file"
+            else
+              grep -q "$addition" "$file" || echo "$addition" >> "$file"
+            fi
+          done 2>/dev/null || true
+
+      - name: Configure KPM + SUSFS
+        run: |
+          cd kernel
+
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- sagit_defconfig
+
+          # 追加 KSU / KPM / SUSFS 配置
+          # 注意：不用 CONFIG_KSU_SYSCALL_HOOK，让 SukiSU 用默认 kprobe 方式
+          cat >> .config << 'EOF'
+          CONFIG_KSU=y
+          CONFIG_KPM=y
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          # CONFIG_KSU_MANUAL_SU is not set
+          EOF
+
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          scripts/config --file .config --disable CC_WERROR
+
+      - name: Verify KPM enabled
+        run: |
+          cd kernel
+          echo "=== KPM ==="
+          grep CONFIG_KPM .config
+          echo "=== KSU ==="
+          grep CONFIG_KSU .config
+          echo "=== MANUAL_SU ==="
+          grep CONFIG_KSU_MANUAL_SU .config || echo "MANUAL_SU disabled"
+
+      - name: Build kernel
+        run: |
+          cd kernel
+          make -j$(nproc) ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
+
+      - name: Show build results
+        run: |
+          echo "=== 编译产物 ==="
+          ls -la kernel/arch/arm64/boot/
+          cat kernel/arch/arm64/boot/.version 2>/dev/null || true
+
+      - name: Package AnyKernel3 zip
+        run: |
+          cd kernel
+
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 anykernel3
+
+          cp arch/arm64/boot/Image.gz-dtb anykernel3/ 2>/dev/null || \
+          cp arch/arm64/boot/Image.gz anykernel3/ 2>/dev/null || \
+          cp arch/arm64/boot/Image anykernel3/
+
+          cat > anykernel3/anykernel.sh << 'SH'
+          kernel.string=Sagit KPM Kernel (SukiSU v4.1.0 + SUSFS) @ build
+          device.name1=sagit
+          device.name2=Mi 6
+          device.name3=
+          device.name4=
+          device.name5=
+          block=/dev/block/bootdevice/by-name/boot;
+          is_slot_device=0;
+          ramdisk_compression=auto;
+          SH
+
+          cd anykernel3
+          zip -r9 ../sagit-kpm-anykernel3.zip * -x .git README.md
+          cd ..
+
+      - name: Upload Image.gz-dtb
+        uses: actions/upload-artifact@v4
+        with:
+          name: sagit-kpm-boot-img
+          path: kernel/arch/arm64/boot/Image.gz-dtb
+
+      - name: Upload AnyKernel3 zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: sagit-kpm-anykernel3
+          path: kernel/sagit-kpm-anykernel3.zip
+
+      - name: Upload kernel config
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-config
+          path: kernel/.config
