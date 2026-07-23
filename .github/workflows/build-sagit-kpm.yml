@@ -180,20 +180,15 @@ jobs:
       - name: Fix KSU LSM hook for SUSFS mode (KSU Manager fd)
         run: |
           cd kernel
-          # When CONFIG_KSU_SUSFS=y, task_fix_setuid LSM hook is gated out
-          # and ksu_handle_setresuid (from kernel/sys.c) is expected instead.
-          # But we don't apply SUSFS kernel/sys.c patches, so KSU Manager
-          # can't get its fd. Fix: always register the hook.
-          sed -i \
-            '/#ifndef CONFIG_KSU_SUSFS/,/^#endif/{
-              /#ifndef CONFIG_KSU_SUSFS/d
-              /^#endif/d
-            }' SukiSU-Ultra/kernel/hook/lsm_hook.c
-          # Ensure ksu_task_fix_setuid is defined unconditionally
-          # (move its definition out of #else/#endif blocks)
-          sed -i \
-            '/^static int ksu_task_fix_setuid/{x;s/^endif.*/UNCONDITIONAL/;x}' \
-            SukiSU-Ultra/kernel/hook/lsm_hook.c 2>/dev/null || true
+          # When CONFIG_KSU_SUSFS=y, task_fix_setuid is gated out.
+          # Fix: remove the #ifndef/#endif guards and move function def.
+          # Step 1: Remove #ifndef CONFIG_KSU_SUSFS .. #endif around hook
+          sed -i '/#ifndef CONFIG_KSU_SUSFS/,/^#endif/{/^#endif/d;/#ifndef CONFIG_KSU_SUSFS/d}' \
+            SukiSU-Ultra/kernel/hook/lsm_hook.c
+          # Step 2: Move ksu_task_fix_setuid out of #else block
+          sed -i '/^#else$/{N;/static int ksu_task_fix_setuid/{s/^#else\n/#endif\n/}}' \
+            SukiSU-Ultra/kernel/hook/lsm_hook.c
+          echo "LSM hook patched"
 
       - name: Fix missing vendor header include paths
         run: |
