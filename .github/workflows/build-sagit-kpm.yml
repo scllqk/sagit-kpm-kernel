@@ -198,6 +198,18 @@ jobs:
           # 6) soc/qcom: tracer_pkt.c 用 TRACE_INCLUDE_PATH=. 引用同目录头文件
           grep -q 'ccflags-y.*-I.*drivers/soc/qcom' drivers/soc/qcom/Makefile || \
             echo 'ccflags-y += -I$(srctree)/drivers/soc/qcom' >> drivers/soc/qcom/Makefile
+          # 7) IPA v2: 同目录 ipa_trace.h 用 TRACE_INCLUDE_PATH=. 引用
+          grep -q 'ccflags-y.*-I.*drivers/platform/msm/ipa/ipa_v2' drivers/platform/msm/ipa/ipa_v2/Makefile || \
+            echo 'ccflags-y += -I$(srctree)/drivers/platform/msm/ipa/ipa_v2' >> drivers/platform/msm/ipa/ipa_v2/Makefile
+          # 8) Camera sensor/io: msm_sensor.h 用 #include "msm_camera_i2c.h" 引用同目录头文件
+          grep -q 'ccflags-y.*-I.*camera_v2/sensor/io' drivers/media/platform/msm/camera_v2/sensor/io/Makefile || \
+            echo 'ccflags-y += -Idrivers/media/platform/msm/camera_v2/sensor/io' >> drivers/media/platform/msm/camera_v2/sensor/io/Makefile
+          # 9) IPA v3: ipa_trace.h 用 TRACE_INCLUDE_PATH=. 引用
+          grep -q 'ccflags-y.*-I.*ipa/ipa_v3' drivers/platform/msm/ipa/ipa_v3/Makefile || \
+            echo 'ccflags-y += -I$(srctree)/drivers/platform/msm/ipa/ipa_v3' >> drivers/platform/msm/ipa/ipa_v3/Makefile
+          # 10) qcacld-3.0 WiFi: 去掉 -Werror（4.4 驱动在 GCC 9 下太多警告）
+          grep -q 'Wno-error' drivers/staging/qcacld-3.0/Kbuild || \
+            sed -i 's/-Werror/-Wno-error/' drivers/staging/qcacld-3.0/Kbuild
 
       - name: Configure KPM + SUSFS
         run: |
@@ -228,8 +240,8 @@ jobs:
           # 更新配置（让依赖选项自动调整）
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
-          # 关闭 CC_WERROR（兼容性安全网）
-          scripts/config --file .config --set-val CC_WERROR n
+          # 关闭 CC_WERROR（完全取消定义，使 ifdef CONFIG_CC_WERROR 不生效）
+          scripts/config --file .config --disable CC_WERROR
 
       - name: Verify KPM enabled
         run: |
