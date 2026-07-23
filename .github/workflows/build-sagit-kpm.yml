@@ -185,7 +185,6 @@ jobs:
           for f in \
             "drivers/bluetooth/Makefile:ccflags-y.*-I.*drivers/bluetooth:ccflags-y += -I\$(srctree)/drivers/bluetooth" \
             "sound/soc/msm/Makefile:ccflags-y.*-I.*sound/soc/msm:ccflags-y += -I\$(srctree)/sound/soc/msm" \
-            "drivers/staging/qcacld-3.0/Kbuild:-Werror:-Wno-error" \
             "drivers/platform/msm/mhi/Makefile:ccflags-y.*-I.*mhi:ccflags-y += -I\$(srctree)/drivers/platform/msm/mhi" \
             "drivers/soc/qcom/Makefile:ccflags-y.*-I.*qcom:ccflags-y += -I\$(srctree)/drivers/soc/qcom" \
             "drivers/platform/msm/ipa/ipa_v2/Makefile:ccflags-y.*-I.*ipa_v2:ccflags-y += -I\$(srctree)/drivers/platform/msm/ipa/ipa_v2" \
@@ -242,6 +241,8 @@ jobs:
       - name: Build kernel
         run: |
           cd kernel
+          # Restore qcacld Kbuild if it was corrupted by vendor header fix
+          git checkout drivers/staging/qcacld-3.0/Kbuild 2>/dev/null || true
           make -j$(nproc) ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
