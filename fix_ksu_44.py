@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
-"""Fix SukiSU-Ultra code for kernel 4.4 arm64 compatibility."""
+"""Fix SukiSU-Ultra v4.1.0 code for kernel 4.4 arm64 compatibility.
+   Files that exist in v4.1.0 (kp_hook.c/kp_util.c don't exist here)."""
 import os
 
-KERNEL_DIR = os.path.join(os.path.dirname(__file__) or '.')
-SUKI_DIR = os.path.join(KERNEL_DIR, 'kernel', 'SukiSU-Ultra', 'kernel')
+# Repo root (where this script lives)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# SukiSU kernel sources are at kernel/SukiSU-Ultra/kernel/
+SUKI_DIR = os.path.join(BASE_DIR, 'kernel', 'SukiSU-Ultra', 'kernel')
+# Symlink target for drivers/kernelsu
+KSU_DIR = os.path.join(BASE_DIR, 'kernel', 'drivers', 'kernelsu')
+
+print(f"BASE_DIR: {BASE_DIR}")
+print(f"SUKI_DIR: {SUKI_DIR}")
+
 
 def fix_arch_h():
+    """Fix syscall symbol names for kernel 4.4 (no __arm64_ prefix)."""
     path = os.path.join(SUKI_DIR, 'arch.h')
+    if not os.path.exists(path):
+        print('arch.h: NOT FOUND, skipped')
+        return
     with open(path) as f:
         c = f.read()
     old = '#define REBOOT_SYMBOL "__arm64_sys_reboot"'
@@ -31,68 +44,9 @@ def fix_arch_h():
     else:
         print('arch.h: already patched, skipped')
 
-def fix_kp_hook():
-    path = os.path.join(SUKI_DIR, 'kp_hook.c')
-    with open(path) as f:
-        c = f.read()
-    # Fix NULL -> 0 for unsigned int cmd
-    c = c.replace(
-        'ksu_handle_sys_reboot(magic1, magic2, NULL, arg)',
-        'ksu_handle_sys_reboot(magic1, magic2, 0, arg)'
-    )
-    # Remove PT_REAL_REGS from reboot_handler_pre (arm64 4.4 bug)
-    old_reboot = (
-        '\tstruct pt_regs *real_regs = PT_REAL_REGS(regs);\n'
-        '\tint magic1 = (int)PT_REGS_PARM1(real_regs);\n'
-        '\tint magic2 = (int)PT_REGS_PARM2(real_regs);\n'
-        '\tvoid __user **arg = (void __user **)&PT_REGS_SYSCALL_PARM4(real_regs);\n'
-    )
-    new_reboot = (
-        '\tint magic1 = (int)PT_REGS_PARM1(regs);\n'
-        '\tint magic2 = (int)PT_REGS_PARM2(regs);\n'
-        '\tvoid __user **arg = (void __user **)&PT_REGS_SYSCALL_PARM4(regs);\n'
-    )
-    if old_reboot in c:
-        c = c.replace(old_reboot, new_reboot)
-        print('kp_hook.c: removed PT_REAL_REGS')
-    # Guard kp_handle_ksud_init when SUSFS
-    c = c.replace(
-        'void kp_handle_ksud_init(void)\n{\n\tint ret;',
-        'void kp_handle_ksud_init(void)\n{\n#ifndef CONFIG_KSU_SUSFS\n\tint ret;'
-    )
-    c = c.replace(
-        '\tINIT_WORK(&stop_input_hook_work, do_stop_input_hook);\n}\n\nvoid kp_handle_ksud_exit(void)',
-        '\tINIT_WORK(&stop_input_hook_work, do_stop_input_hook);\n#endif\n}\n\nvoid kp_handle_ksud_exit(void)'
-    )
-    c = c.replace(
-        'void kp_handle_ksud_exit(void)\n{\n\tunregister_kprobe(&execve_kp);',
-        'void kp_handle_ksud_exit(void)\n{\n#ifndef CONFIG_KSU_SUSFS\n\tunregister_kprobe(&execve_kp);'
-    )
-    c = c.replace(
-        '\tunregister_kprobe(&input_event_kp);\n}',
-        '\tunregister_kprobe(&input_event_kp);\n#endif\n}'
-    )
-    c = c.replace(
-        'schedule_work(&stop_init_rc_hook_work)',
-        'schedule_work(&stop_vfs_read_work)'
-    )
-    with open(path, 'w') as f:
-        f.write(c)
-    print('kp_hook.c: OK')
-
-def fix_kp_util():
-    path = os.path.join(SUKI_DIR, 'kp_util.c')
-    with open(path) as f:
-        c = f.read()
-    c = c.replace(
-        '#include <linux/pgtable.h>',
-        '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)\n#include <linux/pgtable.h>\n#endif'
-    )
-    with open(path, 'w') as f:
-        f.write(c)
-    print('kp_util.c: OK')
 
 def create_stubs():
+    """Create stubs for symbols only needed when SUSFS is disabled."""
     stub_path = os.path.join(SUKI_DIR, 'ksu_stubs_44.c')
     stub_content = (
         '/* Kernel 4.4 stubs - provides symbols excluded when CONFIG_KSU_SUSFS=y */\n'
@@ -111,8 +65,13 @@ def create_stubs():
         f.write(stub_content)
     print('ksu_stubs_44.c: created')
 
+
 def fix_kbuild():
+    """Add ksu_stubs_44.o to build."""
     kbuild_path = os.path.join(SUKI_DIR, 'Kbuild')
+    if not os.path.exists(kbuild_path):
+        print('Kbuild: NOT FOUND, skipped')
+        return
     with open(kbuild_path) as f:
         c = f.read()
     if 'ksu_stubs_44' not in c:
@@ -126,9 +85,8 @@ def fix_kbuild():
     else:
         print('Kbuild: already has ksu_stubs_44.o')
 
+
 fix_arch_h()
-fix_kp_hook()
-fix_kp_util()
 create_stubs()
 fix_kbuild()
 print('All fixes applied.')
