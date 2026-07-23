@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fix SukiSU-Ultra code for kernel 4.4 arm64 compatibility."""
-import os, sys
+import os
 
 SUKI_DIR = os.path.join(os.path.dirname(__file__) or '.', 'SukiSU-Ultra', 'kernel')
 
@@ -34,6 +34,22 @@ with open(path) as f:
 c = c.replace(
     'ksu_handle_sys_reboot(magic1, magic2, NULL, arg)',
     'ksu_handle_sys_reboot(magic1, magic2, 0, arg)'
+)
+c = c.replace(
+    'void kp_handle_ksud_init(void)\n{\n\tint ret;',
+    'void kp_handle_ksud_init(void)\n{\n#ifndef CONFIG_KSU_SUSFS\n\tint ret;'
+)
+c = c.replace(
+    '\tINIT_WORK(&stop_input_hook_work, do_stop_input_hook);\n}\n\nvoid kp_handle_ksud_exit(void)',
+    '\tINIT_WORK(&stop_input_hook_work, do_stop_input_hook);\n#endif\n}\n\nvoid kp_handle_ksud_exit(void)'
+)
+c = c.replace(
+    'void kp_handle_ksud_exit(void)\n{\n\tunregister_kprobe(&execve_kp);',
+    'void kp_handle_ksud_exit(void)\n{\n#ifndef CONFIG_KSU_SUSFS\n\tunregister_kprobe(&execve_kp);'
+)
+c = c.replace(
+    '\tunregister_kprobe(&input_event_kp);\n}',
+    '\tunregister_kprobe(&input_event_kp);\n#endif\n}'
 )
 with open(path, 'w') as f:
     f.write(c)
