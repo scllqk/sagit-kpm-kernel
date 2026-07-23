@@ -172,7 +172,7 @@ jobs:
       - name: Fix set_memory.h compat for kernel 4.4
         run: |
           cd kernel
-          sed -i '/^#include <linux\\/set_memory.h>/d' \
+          sed -i '\|^#include <linux/set_memory.h>|d' \
             drivers/kernelsu/kpm/kpm.c \
             drivers/kernelsu/kpm/compact.c \
             drivers/kernelsu/kpm/super_access.c
