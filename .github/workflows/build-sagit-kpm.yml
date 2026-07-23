@@ -12,13 +12,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Install deps + toolchain (GCC 9)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabihf \
+            gcc-9-aarch64-linux-gnu \
+            gcc-9-arm-linux-gnueabihf \
             libncurses-dev \
             flex bison \
             libssl-dev \
@@ -26,6 +25,14 @@ jobs:
             lz4 \
             cpio \
             python3
+
+          # 设置 GCC 9 为默认交叉编译器
+          sudo update-alternatives --install /usr/bin/aarch64-linux-gnu-gcc \
+            aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-gnu-gcc-9 100
+          sudo update-alternatives --install /usr/bin/arm-linux-gnueabihf-gcc \
+            arm-linux-gnueabihf-gcc /usr/bin/arm-linux-gnueabihf-gcc-9 100
+
+          echo "Compiler: $(aarch64-linux-gnu-gcc --version | head -1)"
 
       - name: Clone kernel source
         run: |
@@ -221,23 +228,7 @@ jobs:
           # 更新配置（让依赖选项自动调整）
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
-          # 禁用不必要且有编译错误的 vendor 驱动
-          scripts/config --file .config \
-            --disable MSMB_CAMERA \
-            --disable MEDIA_SUPPORT \
-            --disable MSM_IPA \
-            --disable IPA \
-            --disable IPA3 \
-            --disable RMNET \
-            --disable RMNET_IPA3 \
-            --disable QCA_CLD_WLAN \
-            --disable INPUT_STMVL53L0
-
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-
-      - name: Disable CC_WERROR for GCC 11 compat
-        run: |
-          cd kernel
+          # 关闭 CC_WERROR（兼容性安全网）
           scripts/config --file .config --set-val CC_WERROR n
 
       - name: Verify KPM enabled
@@ -251,7 +242,9 @@ jobs:
       - name: Build kernel
         run: |
           cd kernel
-          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
+          make -j$(nproc) ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
 
       - name: Show build results
         run: |
