@@ -54,7 +54,9 @@ jobs:
           ln -sf ../SukiSU-Ultra/kernel drivers/kernelsu
 
       - name: Patch code for kernel 4.4
-        run: |          cd kernel          python3 ../fix_ksu_44.py
+        run: |
+          cd kernel
+          python3 ../fix_ksu_44.py
       - name: Integrate SUSFS
         run: |
           cd kernel
