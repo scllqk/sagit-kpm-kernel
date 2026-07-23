@@ -51,6 +51,11 @@ c = c.replace(
     '\tunregister_kprobe(&input_event_kp);\n}',
     '\tunregister_kprobe(&input_event_kp);\n#endif\n}'
 )
+# Fix 4: wrong variable name stop_init_rc_hook_work -> stop_vfs_read_work
+c = c.replace(
+    'schedule_work(&stop_init_rc_hook_work)',
+    'schedule_work(&stop_vfs_read_work)'
+)
 with open(path, 'w') as f:
     f.write(c)
 print('kp_hook.c: OK')
