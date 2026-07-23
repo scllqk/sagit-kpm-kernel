@@ -3,7 +3,7 @@
 import os
 
 KERNEL_DIR = os.path.join(os.path.dirname(__file__) or '.')
-SUKI_DIR = os.path.join(KERNEL_DIR, 'SukiSU-Ultra', 'kernel')
+SUKI_DIR = os.path.join(KERNEL_DIR, 'kernel', 'SukiSU-Ultra', 'kernel')
 
 def fix_arch_h():
     path = os.path.join(SUKI_DIR, 'arch.h')
