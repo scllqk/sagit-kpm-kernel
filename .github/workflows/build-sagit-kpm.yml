@@ -189,8 +189,8 @@ jobs:
           # 3) KGSL
           grep -q 'ccflags-y.*-I.*drivers/gpu/msm' drivers/gpu/msm/Makefile || \
             sed -i '/^ccflags-y := -Idrivers\/staging\/android/s|$| -I$(srctree)/drivers/gpu/msm|' drivers/gpu/msm/Makefile
-          # 4) vl53L0 (ToF sensor)
-          grep -q 'ccflags.*drivers/input/misc/vl53L0' drivers/input/misc/vl53L0/Makefile || \
+          # 4) vl53L0 (ToF sensor) - 注意: 不要匹配到已有 vl53L0/inc 行
+          grep -q 'ccflags-y += -Idrivers/input/misc/vl53L0$' drivers/input/misc/vl53L0/Makefile || \
             sed -i '/^ccflags-y.*vl53L0\/inc -DCAMERA_CCI/a\ccflags-y += -Idrivers/input/misc/vl53L0' drivers/input/misc/vl53L0/Makefile 2>/dev/null || true
           # 5) mhi (Modem Host Interface) <mhi_sys.h> 在同目录
           grep -q 'ccflags-y.*-I.*drivers/platform/msm/mhi' drivers/platform/msm/mhi/Makefile || \
