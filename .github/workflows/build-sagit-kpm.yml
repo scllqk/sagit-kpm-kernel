@@ -188,7 +188,57 @@ jobs:
           # Step 2: Move ksu_task_fix_setuid out of #else block
           sed -i '/^#else$/{N;/static int ksu_task_fix_setuid/{s/^#else\n/#endif\n/}}' \
             SukiSU-Ultra/kernel/hook/lsm_hook.c
-          echo "LSM hook patched"
+          # Step 3: Remove the extra #endif that was the original closing of #ifdef CONFIG_KSU_SUSFS
+          # (between ksu_task_fix_setuid body end and ksu_hooks definition)
+          sed -i '/^static int ksu_task_fix_setuid/,/^static struct security_hook_list/{/^#endif$/d}' \
+            SukiSU-Ultra/kernel/hook/lsm_hook.c
+
+      - name: Add kprobe hook for sys_reboot supercall (non-GKI connector)
+        run: |
+          cd kernel
+          # Create kprobe_hook.c
+          cat > SukiSU-Ultra/kernel/kprobe_hook.c << 'KPROBE_EOF'
+          // SPDX-License-Identifier: GPL-2.0-only
+          #include <linux/kprobes.h>
+          #include <linux/version.h>
+          #include <linux/syscalls.h>
+          #include "include/uapi/supercall.h"
+          extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+          static int ksu_sys_reboot_pre_handler(struct kprobe *p, struct pt_regs *regs)
+          {
+          #ifdef CONFIG_ARM64
+              int magic1 = (int)regs->regs[0];
+              if (magic1 != KSU_INSTALL_MAGIC1) return 0;
+              int magic2 = (int)regs->regs[1];
+              unsigned int cmd = (unsigned int)regs->regs[2];
+              void __user *arg = (void __user *)regs->regs[3];
+              ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+              regs->regs[0] = 0;
+              regs->pc = regs->regs[30];
+              return 1;
+          #else
+              return 0;
+          #endif
+          }
+          static struct kprobe ksu_reboot_kp = {
+              .symbol_name = "sys_reboot",
+              .pre_handler = ksu_sys_reboot_pre_handler,
+          };
+          int __init ksu_kprobe_hook_init(void)
+          {
+              int ret = register_kprobe(&ksu_reboot_kp);
+              if (ret < 0) { ksu_reboot_kp.symbol_name = "SyS_reboot"; ret = register_kprobe(&ksu_reboot_kp); }
+              if (ret < 0) { ksu_reboot_kp.symbol_name = "__arm64_sys_reboot"; ret = register_kprobe(&ksu_reboot_kp); }
+              if (ret == 0) pr_info("ksu: kprobe hook on %s\n", ksu_reboot_kp.symbol_name);
+              else pr_err("ksu: kprobe hook failed\n");
+              return ret;
+          }
+          void __exit ksu_kprobe_hook_exit(void) { unregister_kprobe(&ksu_reboot_kp); }
+          KPROBE_EOF
+          # Add include and init call
+          sed -i '/^#include "infra\/kernel_compat.c"/a#include "kprobe_hook.c"' SukiSU-Ultra/kernel/ksu.c
+          sed -i '/ksu_file_wrapper_init();/a\    ksu_kprobe_hook_init();' SukiSU-Ultra/kernel/ksu.c
+          echo "kprobe_hook integrated"
 
       - name: Fix missing vendor header include paths
         run: |
