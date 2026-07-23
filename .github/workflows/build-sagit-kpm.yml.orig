@@ -53,8 +53,17 @@ jobs:
           # 集成到内核树
           ln -sf ../SukiSU-Ultra/kernel drivers/kernelsu
 
-      - name: Patch code for kernel 4.4
-        run: |          cd kernel          python3 ../fix_ksu_44.py
+      - name: Patch arch.h for kernel 4.4 (sys_reboot symbol)
+        run: |
+          cd kernel
+          sed -i 's|#define REBOOT_SYMBOL "__arm64_sys_reboot"|#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)\n#define REBOOT_SYMBOL "__arm64_sys_reboot"\n#define SYS_READ_SYMBOL "__arm64_sys_read"\n#define SYS_EXECVE_SYMBOL "__arm64_sys_execve"\n#define SYS_FSTAT_SYMBOL "__arm64_sys_newfstat"\n#else\n#define REBOOT_SYMBOL "sys_reboot"\n#define SYS_READ_SYMBOL "sys_read"\n#define SYS_EXECVE_SYMBOL "sys_execve"\n#define SYS_FSTAT_SYMBOL "sys_newfstat"\n#endif|' SukiSU-Ultra/kernel/arch.h
+
+          # 添加 KSU 到 Makefile
+          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+
+          # 添加 KSU 到 Kconfig
+          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
       - name: Integrate SUSFS
         run: |
           cd kernel
@@ -294,7 +303,6 @@ jobs:
           CONFIG_KALLSYMS_ALL=y
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SYSCALL_HOOK=y
-          # CONFIG_KSU_NONE_HOOK is not set
           CONFIG_KSU_SUSFS_SUS_PATH=y
           CONFIG_KSU_SUSFS_SUS_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_KSTAT=y

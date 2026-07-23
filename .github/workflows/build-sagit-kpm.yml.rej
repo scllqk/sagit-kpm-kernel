@@ -1,0 +1,13 @@
+--- /dev/null
++++ /dev/null
+@@ -293,9 +293,10 @@
+           cat >> .config << 'KSU_EOF'
+           CONFIG_KSU=y
+           CONFIG_KSU_MANUAL_SU=y
+           CONFIG_KALLSYMS=y
+           CONFIG_KALLSYMS_ALL=y
+           CONFIG_KSU_SUSFS=y
+           CONFIG_KSU_SYSCALL_HOOK=y
++          # CONFIG_KSU_NONE_HOOK is not set
+ 
+ 
