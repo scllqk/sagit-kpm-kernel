@@ -126,53 +126,17 @@ jobs:
           SUSFS_EOF
 
           # 注册 SUSFS Kconfig，让 olddefconfig 保留 SUSFS 选项
-          cat >> SukiSU-Ultra/kernel/Kconfig << 'KSU_SUSFS_KS'
-
-config KSU_SUSFS
-    bool "KSU SUSFS 4.4 support"
-    depends on KSU
-    default y
-
-config KSU_SUSFS_SUS_PATH
-    bool "susfs sus_path"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SUS_MOUNT
-    bool "susfs sus_mount"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SUS_KSTAT
-    bool "susfs sus_kstat"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_ENABLE_LOG
-    bool "susfs enable log"
-    depends on KSU_SUSFS
-    default n
-
-config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-    bool "susfs hide ksu symbols"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SPOOF_UNAME
-    bool "susfs spoof uname"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_OPEN_REDIRECT
-    bool "susfs open redirect"
-    depends on KSU_SUSFS
-    default y
-
-config KSU_SUSFS_SUS_MAP
-    bool "susfs sus_map"
-    depends on KSU_SUSFS
-    default y
-KSU_SUSFS_KS
+          for _line in "config KSU_SUSFS" "    bool \"KSU SUSFS 4.4 support\"" "    depends on KSU" "    default y" "" \
+            "config KSU_SUSFS_SUS_PATH" "    bool \"susfs sus_path\"" "    depends on KSU_SUSFS" "    default y" "" \
+            "config KSU_SUSFS_SUS_MOUNT" "    bool \"susfs sus_mount\"" "    depends on KSU_SUSFS" "    default y" "" \
+            "config KSU_SUSFS_SUS_KSTAT" "    bool \"susfs sus_kstat\"" "    depends on KSU_SUSFS" "    default y" "" \
+            "config KSU_SUSFS_ENABLE_LOG" "    bool \"susfs enable log\"" "    depends on KSU_SUSFS" "    default n" "" \
+            "config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS" "    bool \"susfs hide ksu symbols\"" "    depends on KSU_SUSFS" "    default y" "" \
+            "config KSU_SUSFS_SPOOF_UNAME" "    bool \"susfs spoof uname\"" "    depends on KSU_SUSFS" "    default y" "" \
+            "config KSU_SUSFS_OPEN_REDIRECT" "    bool \"susfs open redirect\"" "    depends on KSU_SUSFS" "    default y" "" \
+            "config KSU_SUSFS_SUS_MAP" "    bool \"susfs sus_map\"" "    depends on KSU_SUSFS" "    default y"; do
+            echo "$_line" >> SukiSU-Ultra/kernel/Kconfig
+          done
 
           grep -q 'susfs' fs/Makefile || \
             sed -i '/obj-$(CONFIG_EPOLL)/i\obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
