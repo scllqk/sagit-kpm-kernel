@@ -210,6 +210,12 @@ jobs:
           # 10) qcacld-3.0 WiFi: 去掉 -Werror（4.4 驱动在 GCC 9 下太多警告）
           grep -q 'Wno-error' drivers/staging/qcacld-3.0/Kbuild || \
             sed -i 's/-Werror/-Wno-error/' drivers/staging/qcacld-3.0/Kbuild
+          # 11) Camera common: cam_smmu_api.c 需要 <msm_camera_tz_util.h>（同目录）
+          grep -q 'ccflags-y.*-I.*camera_v2/common' drivers/media/platform/msm/camera_v2/common/Makefile || \
+            echo 'ccflags-y += -I$(srctree)/drivers/media/platform/msm/camera_v2/common' >> drivers/media/platform/msm/camera_v2/common/Makefile
+          # 12) rndis_ipa: rndis_ipa_trace.h 用 TRACE_INCLUDE_PATH=. 引用（drivers/net/ethernet/msm）
+          grep -q 'ccflags-y.*-I.*drivers/net/ethernet/msm' drivers/net/ethernet/msm/Makefile || \
+            echo 'ccflags-y += -I$(srctree)/drivers/net/ethernet/msm' >> drivers/net/ethernet/msm/Makefile
 
       - name: Configure KPM + SUSFS
         run: |
